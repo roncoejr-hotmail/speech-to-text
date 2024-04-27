@@ -1,25 +1,36 @@
-import streamlit as st
 import speech_recognition as sr
+from langdetect import detect_langs
+import pandas as pd
 import sys
+import streamlit as st
+from io import StringIO, BytesIO
 
-from os import path
-
-
-# AUDIO_FILE = path.join(path.dirname(path.realpath(__file__)), sys.argv[1])
-
+from os import path, listdir
 
 
-AUDIO_FILE = st.file_uploader("Pick your file:", ['wav', 'aiff'])
+AUDIO_FILES = st.file_uploader("Select files", ['wav'], accept_multiple_files=True)
 
+pd.set_option('display.max_colwidth', None)
 r = sr.Recognizer()
-if AUDIO_FILE is not None:
-    with sr.AudioFile(AUDIO_FILE) as source:
-        audio = r.record(source)
+data = {'the_transcript': [''], 'the_languages': ['']}
+df = pd.DataFrame(data)
+n_recordings = 0
+if AUDIO_FILES is not None:
+    for filename in AUDIO_FILES:
+        n_recordings += 1
+        d_bytes = BytesIO(filename.getvalue())
+        with sr.AudioFile(d_bytes) as source:
+            audio = r.record(source)
 
-    try:
-        # print("You said: {}\n\n".format(r.recognize_sphinx(audio)))
-        st.write("{}\n\n".format(r.recognize_sphinx(audio)))
-    except sr.UnknownValueError:
-        st.write("Audio not understood")
-    except sr.RequestError as e:
-        st.write("Error {}".format(e))
+
+        try:
+            recognized_text = r.recognize_sphinx(audio)
+            df.loc[len(df)] = [recognized_text, detect_langs(recognized_text)]
+            st.write("\n\nRecording {} processed\n".format(n_recordings))
+        except sr.UnknownValueError:
+            st.write("Audio not understood")
+        except sr.RequestError as e:
+            st.write("Error {}".format(e))
+
+df
+df.info()
