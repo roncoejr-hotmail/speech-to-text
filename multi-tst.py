@@ -4,6 +4,7 @@ import pandas as pd
 import sys
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
+import boto3
 
 from os import path, listdir, environ
 
