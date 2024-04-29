@@ -89,12 +89,12 @@ def aws_text_extract_callback(job_name: str, the_audio, file_uri, the_dict: dict
             if job_status == "COMPLETED":
                 # st.write(f"{job['TranscriptionJob']['Transcript']['TranscriptFileUri']}.")
                 s3_obj = job['TranscriptionJob']['Transcript']['TranscriptFileUri']
-                # TODO: Download the file
+                # Download the file
                 s3_client = boto3.client('s3')
                 t_response = requests.get(job['TranscriptionJob']['Transcript']['TranscriptFileUri'])
                 t_transcript = json.loads(t_response.content)
                 # s3_client.download_file(environ['s3root'], s3_obj, job_name + ".json")
-                # TODO: Set dictionary attributes
+                # Set dictionary attributes
                 the_dict['text'] = t_transcript['results']['transcripts'][0]['transcript']
                 the_dict['end_time'] = datetime.now()
                 the_dict['time_delta'] = the_dict['end_time'] - the_dict['start_time']
@@ -163,15 +163,18 @@ def main():
             # df_all.loc[len(df_all.index)] = [df_sph['the_transcript'][n_recordings], str(df_sph['the_languages'][n_recordings])[1:2], df_az['the_transcript'][n_recordings], str(df_az['the_languages'][n_recordings])[1:2]]
 
     t_sphinx, t_azure, t_aws = st.tabs(["Spinx/CPU", "Azure Cognitive Speech", "AWS Transcription"])
-    if len(df_sph) > 0:
+    if len(df_sph) > 1:
         with t_sphinx:
             df_sph
+            st.button("Store in Snowflake and Analyze", key="sphinx_button", use_container_width=True)
 
         with t_azure:
             df_az
+            st.button("Store in Snowflake and Analyze", key="azure_button", use_container_width=True)
         
         with t_aws:
             df_aws
+            st.button("Store in Snowflake and Analyze", key="aws_button", use_container_width=True)
 
 if __name__ == "__main__":
     main()
