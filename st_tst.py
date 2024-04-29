@@ -1,5 +1,6 @@
 import speech_recognition as sr
 from langdetect import detect_langs
+from snowflake.snowpark import Session
 import pandas as pd
 import sys
 import streamlit as st
@@ -124,6 +125,19 @@ def write_temp_file(the_file):
 def remove_temp_file(the_file):
     remove(the_file)
 
+def snow_save(session: Session, b_key, df: pd.DataFrame):
+    df['start_time'] = pd.to_datetime(df['start_time'])
+    df['end_time'] = pd.to_datetime(df['end_time'])
+    df['time_delta'] = pd.to_timedelta(df['time_delta'])
+    df['start_time'].dt.tz_localize('UTC')
+    df['end_time'].dt.tz_localize('UTC')
+    t_df = session.createDataFrame(df)
+    t_prefix = "TBL_UPLFT_"
+    t_postfix = datetime.now().strftime("%Y_%m_%d__%H_%M_%S")
+    the_table_name = t_prefix + t_postfix
+    st.session_state[b_key] = the_table_name
+    t_df.write.mode('overwrite').save_as_table(the_table_name)
+
 
 def main():
     pd.set_option('display.max_colwidth', None)
@@ -144,12 +158,24 @@ def main():
             n_recordings += 1
             try:
                 write_temp_file(filename)
-                recognized_text_sphinx = sph_text_extract(path.join(SCRIPT_PATH, filename.name), the_dict)
-                df_sph.loc[len(df_sph.index)] = [recognized_text_sphinx['start_time'], recognized_text_sphinx['end_time'], recognized_text_sphinx['text'], recognized_text_sphinx['languages'][1:2], recognized_text_sphinx['time_delta']]
-                recognized_text_azure = az_text_extract(path.join(SCRIPT_PATH, filename.name), az_api_key, the_dict)
-                df_az.loc[len(df_az.index)] = [recognized_text_azure['start_time'], recognized_text_azure['end_time'], recognized_text_azure['text'], recognized_text_azure['languages'][1:2], recognized_text_azure['time_delta']]
-                recognized_text_aws = aws_text_extract(path.join(SCRIPT_PATH, filename.name), the_dict)
-                df_aws.loc[len(df_aws.index)] = [recognized_text_aws['start_time'], recognized_text_aws['end_time'], recognized_text_aws['text'], recognized_text_aws['languages'][1:2], recognized_text_aws['time_delta']]
+                if 'sph_btn' not in st.session_state and 'b_recog_run' not in st.session_state:
+                    recognized_text_sphinx = sph_text_extract(path.join(SCRIPT_PATH, filename.name), the_dict)
+                    df_sph.loc[len(df_sph.index)] = [recognized_text_sphinx['start_time'], recognized_text_sphinx['end_time'], recognized_text_sphinx['text'], recognized_text_sphinx['languages'][1:2], recognized_text_sphinx['time_delta']]
+                    st.session_state['sph_btn_df'] = df_sph
+                else:
+                    st.session_state['sph_btn_df']
+                if 'az_btn' not in st.session_state and 'b_recog_run' not in st.session_state:
+                    recognized_text_azure = az_text_extract(path.join(SCRIPT_PATH, filename.name), az_api_key, the_dict)
+                    df_az.loc[len(df_az.index)] = [recognized_text_azure['start_time'], recognized_text_azure['end_time'], recognized_text_azure['text'], recognized_text_azure['languages'][1:2], recognized_text_azure['time_delta']]
+                    st.session_state['az_btn_df'] = df_az
+                else:
+                    st.session_state['az_btn_df']
+                if 'aws_btn' not in st.session_state and 'b_recog_run' not in st.session_state:
+                    recognized_text_aws = aws_text_extract(path.join(SCRIPT_PATH, filename.name), the_dict)
+                    df_aws.loc[len(df_aws.index)] = [recognized_text_aws['start_time'], recognized_text_aws['end_time'], recognized_text_aws['text'], recognized_text_aws['languages'][1:2], recognized_text_aws['time_delta']]
+                    st.session_state['aws_btn_df'] = df_aws
+                else:
+                    st.session_state['aws_btn_df']
                 remove_temp_file(path.join(SCRIPT_PATH, filename.name))
                 st.write("\n\nRecording {} processed\n".format(n_recordings))
             except sr.UnknownValueError:
@@ -164,17 +190,33 @@ def main():
 
     t_sphinx, t_azure, t_aws = st.tabs(["Spinx/CPU", "Azure Cognitive Speech", "AWS Transcription"])
     if len(df_sph) > 1:
+        auth_creds = {
+                    "account": environ["account"],
+                    "user": environ["user"],
+                    "password": environ["password"],
+                    "role": environ["role"],
+                    "database": environ["database"],
+                    "schema": environ["schema"],
+                    "warehouse": environ["warehouse"]
+                }
+
+        m_sess = Session.builder.configs(auth_creds).create()
         with t_sphinx:
             df_sph
-            st.button("Store in Snowflake and Analyze", key="sphinx_button", use_container_width=True)
+            st.button("Store in Snowflake and Analyze", key="sphinx_button", on_click=snow_save, args=(m_sess, df_sph), use_container_width=True)
 
         with t_azure:
             df_az
-            st.button("Store in Snowflake and Analyze", key="azure_button", use_container_width=True)
+            st.button("Store in Snowflake and Analyze", key="azure_button", on_click=snow_save, args=(m_sess, df_az), use_container_width=True)
         
         with t_aws:
             df_aws
-            st.button("Store in Snowflake and Analyze", key="aws_button", use_container_width=True)
+            st.button("Store in Snowflake and Analyze", key="aws_button", on_click=snow_save, args=(m_sess, 'aws_btn', df_aws), use_container_width=True)
+            if 'aws_btn' in st.session_state:
+                st.session_state['b_recog_run'] = True
+                my_sess = Session.builder.configs(auth_creds).create()
+                aws_df = my_sess.table("{}".format(st.session_state['aws_btn']))
+                aws_df.select(['\"the_transcript\"']).to_pandas()
 
 if __name__ == "__main__":
     main()
